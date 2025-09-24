@@ -5,19 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Smart Soil Monitoring Dashboard</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
       padding: 20px;
     }
-
     .container {
       max-width: 1200px;
       margin: 0 auto;
@@ -26,26 +20,19 @@
       padding: 30px;
       box-shadow: 0 20px 40px rgba(0,0,0,0.1);
     }
-
-    .header {
-      text-align: center;
-      margin-bottom: 30px;
-    }
-
+    .header { text-align: center; margin-bottom: 30px; }
     .header h1 {
       font-size: 2.2rem;
       background: linear-gradient(45deg,#667eea,#764ba2);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-
     .dashboard-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit,minmax(300px,1fr));
       gap: 25px;
       margin-bottom: 30px;
     }
-
     .sensor-card {
       background: #f8f9fa;
       border-radius: 15px;
@@ -53,71 +40,33 @@
       box-shadow: 0 8px 25px rgba(0,0,0,0.1);
       position: relative;
     }
-
-    .sensor-header {
-      display: flex;
-      align-items: center;
-      margin-bottom: 15px;
-    }
-
+    .sensor-header { display: flex; align-items: center; margin-bottom: 15px; }
     .sensor-icon {
-      width: 45px;
-      height: 45px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 1.3rem;
-      margin-right: 12px;
+      width: 45px; height: 45px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 1.3rem; margin-right: 12px;
     }
-
     .moisture-card .sensor-icon { background: #3498db; }
     .ph-card .sensor-icon { background: #e74c3c; }
     .temp-card .sensor-icon { background: #f39c12; }
     .npk-card .sensor-icon { background: #27ae60; }
-
-    .sensor-title {
-      font-weight: 600;
-    }
-
-    .sensor-value {
-      font-size: 2rem;
-      font-weight: bold;
-      margin: 10px 0;
-    }
-
-    .sensor-status {
-      font-size: 0.9rem;
-      margin-top: 8px;
-    }
-
+    .sensor-title { font-weight: 600; }
+    .sensor-value { font-size: 2rem; font-weight: bold; margin: 10px 0; }
+    .sensor-status { font-size: 0.9rem; margin-top: 8px; }
     .status-good { color: #27ae60; }
     .status-warning { color: #f39c12; }
     .status-critical { color: #e74c3c; }
-
     .input-box {
-      width: 100%;
-      padding: 8px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-      margin-top: 5px;
-      font-size: 1rem;
+      width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid #ccc; margin-top: 5px; font-size: 1rem;
     }
-
     .refresh-btn {
       background: linear-gradient(45deg,#667eea,#764ba2);
-      color: #fff;
-      border: none;
-      padding: 12px 25px;
-      border-radius: 25px;
-      font-weight: 600;
-      cursor: pointer;
-      display: block;
-      margin: 15px auto;
+      color: #fff; border: none; padding: 12px 25px;
+      border-radius: 25px; font-weight: 600;
+      cursor: pointer; display: block; margin: 15px auto;
       box-shadow: 0 4px 15px rgba(102,126,234,0.4);
     }
-
     .ai-card {
       background: #f8f9fa;
       border-radius: 15px;
@@ -125,24 +74,13 @@
       box-shadow: 0 8px 25px rgba(0,0,0,0.1);
       margin-top: 20px;
     }
-
     .recommendation-item {
-      background: #fff;
-      padding: 12px;
-      border-radius: 10px;
-      margin-bottom: 10px;
+      background: #fff; padding: 12px;
+      border-radius: 10px; margin-bottom: 10px;
       border-left: 4px solid #27ae60;
     }
-
-    .recommendation-title {
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .recommendation-desc {
-      font-size: 0.9rem;
-      color: #555;
-    }
+    .recommendation-title { font-weight: 600; margin-bottom: 4px; }
+    .recommendation-desc { font-size: 0.9rem; color: #555; }
   </style>
 </head>
 <body>
@@ -242,7 +180,6 @@
       const sensorData = await fetchSensorData();
       if (!sensorData) return;
 
-      // Get inputs from user
       const phValue = parseFloat(document.getElementById('ph-input').value) || 7.0;
       const npkValue = parseFloat(document.getElementById('npk-input').value) || 120;
 
@@ -273,7 +210,7 @@
         moisture: sensorData.moisture, 
         temperature: sensorData.temperature, 
         ph: phValue, 
-        npk: npkValue 
+        npk: npkValue
       };
 
       try {
@@ -287,10 +224,17 @@
         const container = document.getElementById("crop-recommendations");
         container.innerHTML = "";
 
+        // Show predicted soil type
+        if (recJson.soil_type) {
+          const soilDiv = document.createElement("div");
+          soilDiv.innerHTML = `<p><strong>Predicted Soil Type:</strong> ${recJson.soil_type}</p>`;
+          container.appendChild(soilDiv);
+        }
+
         recJson.recommendations.forEach(crop => {
           const div = document.createElement("div");
           div.className = "recommendation-item";
-          div.innerHTML = `<div class="recommendation-title">${crop.name}</div>
+          div.innerHTML = `<div class="recommendation-title">${crop.name} (${crop.probability})</div>
                            <div class="recommendation-desc">${crop.reason}</div>`;
           container.appendChild(div);
         });
