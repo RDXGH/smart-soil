@@ -1,138 +1,96 @@
-import os
-import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
-from sklearn.tree import DecisionTreeClassifier
 import joblib
+import numpy as np
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-# SQLite database
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sensors.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+# Paths
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "model")
+CROP_MODEL_PATH = os.path.join(MODEL_DIR, "crop_model.pkl")
+SOIL_MODEL_PATH = os.path.join(MODEL_DIR, "soil_model.pkl")
+SOIL_ENCODER_PATH = os.path.join(MODEL_DIR, "soil_encoder.pkl")
 
-class SensorReading(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    moisture = db.Column(db.Float, nullable=True)
-    temperature = db.Column(db.Float, nullable=True)
-    ph = db.Column(db.Float, nullable=True)
-    npk = db.Column(db.Float, nullable=True)
+# Load models + encoder
+crop_clf = joblib.load(CROP_MODEL_PATH)
+soil_clf = joblib.load(SOIL_MODEL_PATH)
+soil_encoder = joblib.load(SOIL_ENCODER_PATH)
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'timestamp': self.timestamp.isoformat(),
-            'moisture': self.moisture,
-            'temperature': self.temperature,
-            'ph': self.ph,
-            'npk': self.npk
-        }
+# Simulated sensor storage
+latest_sensor_data = {
+    "moisture": 50,
+    "temperature": 25,
+    "ph": 7.0,
+    "npk": 200
+}
 
-with app.app_context():
-    db.create_all()
+@app.route("/api/sensors", methods=["GET"])
+def get_sensors():
+    return jsonify(latest_sensor_data)
 
-# ==============================
-# Load CSV + Train Model
-# ==============================
-MODEL_PATH = os.path.join('model', 'crop_model.pkl')
-DATASET_PATH = os.path.join('model', 'dataset.csv')
-
-ml_model = None
-if os.path.exists(DATASET_PATH):
-    try:
-        df = pd.read_csv(DATASET_PATH)
-        X = df[['moisture', 'temperature', 'ph', 'npk']]
-        y = df['crop']
-        ml_model = DecisionTreeClassifier()
-        ml_model.fit(X, y)
-
-        # Save model for future use
-        os.makedirs("model", exist_ok=True)
-        joblib.dump(ml_model, MODEL_PATH)
-        print("✅ Model trained from CSV and saved.")
-    except Exception as e:
-        print("❌ Error training model from CSV:", e)
-else:
-    if os.path.exists(MODEL_PATH):
-        try:
-            ml_model = joblib.load(MODEL_PATH)
-            print("✅ ML model loaded from file.")
-        except:
-            print("❌ No dataset.csv or valid model found. Cannot predict.")
-
-# ==============================
-# API Routes
-# ==============================
-
-@app.route('/api/ingest', methods=['POST'])
+@app.route("/api/ingest", methods=["POST"])
 def ingest():
-    data = request.get_json() or {}
+    global latest_sensor_data
+    data = request.json
+    for key in ["moisture", "temperature", "ph", "npk"]:
+        if key in data:
+            latest_sensor_data[key] = float(data[key])
+    return jsonify({"status": "ok", "data": latest_sensor_data})
+
+@app.route("/api/recommendations", methods=["POST"])
+def recommend():
+    data = request.json
     try:
-        reading = SensorReading(
-            moisture=float(data.get('moisture')) if data.get('moisture') else None,
-            temperature=float(data.get('temperature')) if data.get('temperature') else None,
-            ph=float(data.get('ph')) if data.get('ph') else None,
-            npk=float(data.get('npk')) if data.get('npk') else None
+        # Extract features
+        features = [
+            float(data["moisture"]),
+            float(data["temperature"]),
+            float(data["ph"]),
+            float(data["npk"])
+        ]
+
+        # --- 1) Predict soil type ---
+        soil_pred = soil_clf.predict([features])[0]
+        encoded_soil = soil_encoder.transform([soil_pred])[0]
+
+        # Add encoded soil type for crop model
+        crop_features = features + [encoded_soil]
+
+        # --- 2) Predict crops (top-3) ---
+        probs = crop_clf.predict_proba([crop_features])[0]
+        top_indices = np.argsort(probs)[::-1][:3]  # top-3
+        top_crops = [(crop_clf.classes_[i], probs[i]) for i in top_indices]
+
+        # --- 3) Feature importance analysis ---
+        feature_names = ['Moisture', 'Temperature', 'pH', 'NPK', 'Soil Type']
+        importances = crop_clf.feature_importances_
+        ranked_features = sorted(
+            zip(feature_names, importances),
+            key=lambda x: x[1],
+            reverse=True
         )
-        db.session.add(reading)
-        db.session.commit()
-        return jsonify({'status': 'ok', 'id': reading.id}), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
 
+        top_features = [f for f, score in ranked_features[:2]]  # top 2 drivers
 
-@app.route('/api/sensors', methods=['GET'])
-def get_latest_sensor():
-    r = SensorReading.query.order_by(SensorReading.timestamp.desc()).first()
-    if not r:
-        return jsonify({'moisture': 0, 'temperature': 0, 'ph': 7.0, 'npk': 120})
-    return jsonify(r.to_dict())
-
-
-# ✅ Fixed: POST method for recommendations
-@app.route('/api/recommendations', methods=['POST'])
-def get_recommendations():
-    data = request.get_json() or {}
-
-    # Fallback: use latest DB reading if no data provided
-    if not data:
-        r = SensorReading.query.order_by(SensorReading.timestamp.desc()).first()
-        if r:
-            data = r.to_dict()
-        else:
-            data = {'moisture': 0, 'temperature': 0, 'ph': 7.0, 'npk': 120}
-
-    if ml_model:
-        try:
-            X = [[
-                float(data.get('moisture', 0)),
-                float(data.get('temperature', 0)),
-                float(data.get('ph', 7.0)),
-                float(data.get('npk', 120))
-            ]]
-            pred = ml_model.predict(X)[0]
-            return jsonify({
-                'recommendations': [
-                    {'name': pred, 'reason': 'Predicted from trained crop model'}
-                ]
+        # --- 4) Build recommendations ---
+        recommendations = []
+        for crop, prob in top_crops:
+            recommendations.append({
+                "name": crop,
+                "probability": f"{prob*100:.1f}%",
+                "reason": f"{soil_pred} soil with given conditions favors {crop}. "
+                          f"Key factors: {', '.join(top_features)}."
             })
-        except Exception as e:
-            return jsonify({'error': 'Prediction failed', 'details': str(e)}), 500
-    else:
-        return jsonify({'error': 'No ML model available. Please retrain.'}), 500
 
+        return jsonify({
+            "soil_type": soil_pred,
+            "recommendations": recommendations
+        })
 
-@app.route('/api/readings', methods=['GET'])
-def get_readings():
-    n = int(request.args.get('n', 50))
-    rows = SensorReading.query.order_by(SensorReading.timestamp.desc()).limit(n).all()
-    return jsonify([r.to_dict() for r in rows])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
